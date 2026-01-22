@@ -66,8 +66,9 @@ jobs:
             exit 0
           fi
           UPDATE_SUMMARY=$(cat UPDATE_SUMMARY.txt)
-          COMMIT_MSG="chore: Update OpenAPI specifications\n\n${UPDATE_SUMMARY}\n\nAutomated update by OpenAPI Dependabot"
-          git commit -m "$COMMIT_MSG"
+          git commit -m "chore: Update OpenAPI specifications" \
+            -m "$UPDATE_SUMMARY" \
+            -m "Automated update by OpenAPI Dependabot"
           git push -u origin "$BRANCH_NAME"
           echo "✅ Branch pushed successfully"
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
@@ -96,4 +97,3 @@ jobs:
             --label "openapi-update,automated,dependencies"
           echo "✅ Pull Request created successfully!"
           rm -f UPDATE_SUMMARY.txt
-          
