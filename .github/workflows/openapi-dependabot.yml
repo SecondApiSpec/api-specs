@@ -5,8 +5,14 @@ name: OpenAPI Dependabot
 
 on:
   schedule:
-    - cron: "0 2 * * *"  # Run daily at 2 AM UTC
-  workflow_dispatch:  # Allow manual triggers
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      ballerina-version:
+        description: "Ballerina Language Version"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   update-openapi-specs:
@@ -31,10 +37,13 @@ jobs:
       - name: Run Dependabot Monitor
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          BALLERINA_VERSION: ${{ inputs.ballerina-version }}
         run: |
           cd dependabot
           bal run
           cd ..
+      
+      # ... rest of your workflow remains the same
       
       - name: Check for updates
         id: check_updates

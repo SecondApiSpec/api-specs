@@ -223,6 +223,18 @@ public function main() returns error? {
     io:println("=== Dependabot OpenAPI Monitor ===");
     io:println("Starting OpenAPI specification monitoring...\n");
     
+    // Get Ballerina version from environment (optional)
+    string? balVersionEnv = os:getEnv("BALLERINA_VERSION");
+    string balVersion = balVersionEnv is string && balVersionEnv.trim().length() > 0 
+        ? balVersionEnv.trim() 
+        : ""; // Default to empty if not provided
+    
+    if balVersion.length() > 0 {
+        io:println(string `🔧 Using Ballerina version: ${balVersion}`);
+    } else {
+        io:println("🔧 Using default Ballerina version (from template)");
+    }
+    
     // Get GitHub token
     string? token = os:getEnv("GH_TOKEN");
     if token is () {
