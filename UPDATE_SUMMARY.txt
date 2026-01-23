@@ -1,0 +1,5 @@
+- stripe/stripe: v2153 → v2155 (API v2026-01-28.clover)
+- twilio/twilio: 2.6.1 → 2.6.2 (API v1.0.0)
+- docusign/esignature: 2.1 → v2.1 (API vv2.1)
+- hubspot/crm.associations: rollout-50914 → rollout-130902 (API vrollout-130902)
+- hubspot/crm.associationsSchema: rollout-50914 → rollout-130902 (API vrollout-130902)
