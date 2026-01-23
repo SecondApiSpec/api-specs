@@ -28,6 +28,8 @@ type Repository record {|
     string[] tags;
     string versioningStrategy = RELEASE_TAG; // Default to release-tag
     string? branch = (); // For file-based and rollout-based strategies
+    boolean autoDiscoverAsset = false; // NEW: Let system find OpenAPI assets dynamically
+    string[] fallbackPaths = []; // NEW: Alternative paths to try if primary fails
 |};
 
 // Update result record
@@ -93,6 +95,124 @@ function listGitHubDirectory(string owner, string repo, string branch, string pa
     }
     
     return error("Unexpected response format from GitHub API");
+}
+
+// Enhanced function to find OpenAPI spec in release assets
+function findOpenAPIAsset(github:ReleaseAsset[] assets) returns [string, string]|error {
+    // Priority order for spec detection
+    string[] preferredNames = ["openapi", "spec", "swagger", "api"];
+    string[] preferredExts = [".yaml", ".yml", ".json"];
+    
+    // First pass: exact matches
+    foreach var asset in assets {
+        string name = asset.name.toLowerAscii();
+        foreach string preferred in preferredNames {
+            foreach string ext in preferredExts {
+                if name == preferred + ext || (name.startsWith(preferred) && name.endsWith(ext)) {
+                    return [asset.name, asset.browser_download_url];
+                }
+            }
+        }
+    }
+    
+    // Second pass: contains preferred names
+    foreach var asset in assets {
+        string name = asset.name.toLowerAscii();
+        foreach string preferred in preferredNames {
+            if name.includes(preferred) && (name.endsWith(".yaml") || name.endsWith(".yml") || name.endsWith(".json")) {
+                return [asset.name, asset.browser_download_url];
+            }
+        }
+    }
+    
+    return error("No OpenAPI specification found in release assets");
+}
+
+// Helper function to validate OpenAPI spec content
+function isValidOpenAPISpec(string content) returns boolean {
+    // Check for OpenAPI 3.x identifiers
+    if content.includes("openapi:") || content.includes("\"openapi\"") {
+        return true;
+    }
+    // Check for Swagger 2.x identifiers
+    if content.includes("swagger:") || content.includes("\"swagger\"") {
+        return true;
+    }
+    return false;
+}
+
+// Generic download helper for any URL
+function downloadFromUrl(string url) returns string|error {
+    io:println(string `  📥 Downloading from ${url}...`);
+    
+    http:Client httpClient = check new (url);
+    http:Response response = check httpClient->get("");
+    
+    if response.statusCode != 200 {
+        return error(string `HTTP ${response.statusCode} from ${url}`);
+    }
+    
+    string|byte[]|error content = response.getTextPayload();
+    
+    if content is error {
+        return error("Failed to get content from response");
+    }
+    
+    if content is string {
+        return content;
+    }
+    
+    return check string:fromBytes(content);
+}
+
+// Helper to search directory for OpenAPI specs
+function findSpecInDirectory(string owner, string repo, string branch, string dirPath) returns string|error {
+    io:println(string `  🔍 Searching for OpenAPI specs in ${dirPath}...`);
+    
+    string[] contents = check listGitHubDirectory(owner, repo, branch, dirPath);
+    
+    string[] candidates = [];
+    foreach string item in contents {
+        string lower = item.toLowerAscii();
+        if lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml") {
+            if lower.includes("openapi") || lower.includes("spec") || lower.includes("swagger") {
+                candidates.push(dirPath + "/" + item);
+            }
+        }
+    }
+    
+    // If no candidates with preferred names, try all JSON/YAML files
+    if candidates.length() == 0 {
+        foreach string item in contents {
+            string lower = item.toLowerAscii();
+            if lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml") {
+                candidates.push(dirPath + "/" + item);
+            }
+        }
+    }
+    
+    if candidates.length() == 0 {
+        return error("No OpenAPI specs found in directory");
+    }
+    
+    if candidates.length() > 1 {
+        io:println(string `  ⚠️  Multiple candidates found: ${candidates.toString()}, using first`);
+    }
+    
+    return candidates[0];
+}
+
+// Try downloading spec from fallback paths
+function tryFallbackPaths(string owner, string repo, string tagOrBranch, string[] fallbackPaths) returns [string, string]|error {
+    foreach string fallbackPath in fallbackPaths {
+        string url = string `https://raw.githubusercontent.com/${owner}/${repo}/${tagOrBranch}/${fallbackPath}`;
+        string|error content = downloadFromUrl(url);
+        if content is string && isValidOpenAPISpec(content) {
+            io:println(string `  ✅ Found valid spec at fallback path: ${fallbackPath}`);
+            return [content, fallbackPath];
+        }
+    }
+    return error("No valid OpenAPI spec found in fallback paths");
 }
 
 // Find latest rollout number in a directory
@@ -366,20 +486,87 @@ function processReleaseTagRepo(github:Client githubClient, Repository repo) retu
         if hasVersionChanged(repo.lastVersion, tagName) {
             io:println("  ✅ UPDATE AVAILABLE!");
             
-            // Download the spec to extract version
-            string|error specContent = downloadSpec(
-                githubClient, 
-                repo.owner, 
-                repo.repo, 
-                repo.releaseAssetName, 
-                tagName,
-                repo.specPath
-            );
+            // Dynamic asset discovery
+            github:ReleaseAsset[]? assets = latestRelease.assets;
+            string assetName = repo.releaseAssetName;
+            string downloadUrl = "";
+            string specContent = "";
+            boolean downloaded = false;
             
-            if specContent is error {
-                io:println("  ❌ Download failed: " + specContent.message());
-                return error(specContent.message());
+            // Strategy 1: Auto-discover asset from release
+            if repo.autoDiscoverAsset && assets is github:ReleaseAsset[] && assets.length() > 0 {
+                [string, string]|error assetInfo = findOpenAPIAsset(assets);
+                if assetInfo is [string, string] {
+                    [assetName, downloadUrl] = assetInfo;
+                    io:println(string `  📦 Auto-discovered asset: ${assetName}`);
+                    
+                    string|error content = downloadFromUrl(downloadUrl);
+                    if content is string {
+                        specContent = content;
+                        downloaded = true;
+                    }
+                } else {
+                    io:println("  ⚠️  Auto-discovery failed, trying other methods...");
+                }
             }
+            
+            // Strategy 2: Try known asset from release assets
+            if !downloaded && assets is github:ReleaseAsset[] && assets.length() > 0 {
+                foreach github:ReleaseAsset asset in assets {
+                    if asset.name == repo.releaseAssetName {
+                        downloadUrl = asset.browser_download_url;
+                        io:println(string `  ✅ Found known asset in release: ${asset.name}`);
+                        
+                        string|error content = downloadFromUrl(downloadUrl);
+                        if content is string {
+                            specContent = content;
+                            downloaded = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            // Strategy 3: Try primary spec path in repo
+            if !downloaded {
+                downloadUrl = string `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${tagName}/${repo.specPath}`;
+                io:println(string `  ℹ️  Trying primary spec path: ${repo.specPath}`);
+                
+                string|error content = downloadFromUrl(downloadUrl);
+                if content is string {
+                    specContent = content;
+                    downloaded = true;
+                }
+            }
+            
+            // Strategy 4: Try fallback paths
+            if !downloaded && repo.fallbackPaths.length() > 0 {
+                io:println("  ℹ️  Trying fallback paths...");
+                [string, string]|error fallbackResult = tryFallbackPaths(
+                    repo.owner, repo.repo, tagName, repo.fallbackPaths
+                );
+                if fallbackResult is [string, string] {
+                    string foundContent = fallbackResult[0];
+                    string foundPath = fallbackResult[1];
+                    specContent = foundContent;
+                    downloadUrl = string `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${tagName}/${foundPath}`;
+                    downloaded = true;
+                }
+            }
+            
+            // Check if we got content
+            if !downloaded || specContent == "" {
+                io:println("  ❌ Download failed: Could not retrieve spec from any source");
+                return error("Failed to download OpenAPI specification");
+            }
+            
+            // Validate it's actually an OpenAPI spec
+            if !isValidOpenAPISpec(specContent) {
+                io:println("  ❌ Downloaded file is not a valid OpenAPI spec");
+                return error("Invalid OpenAPI specification - missing openapi/swagger identifier");
+            }
+            
+            io:println("  ✅ Downloaded and validated OpenAPI spec");
             
             // Extract API version from spec
             string apiVersion = "";
@@ -410,9 +597,10 @@ function processReleaseTagRepo(github:Client githubClient, Repository repo) retu
                 io:println("  ⚠️  Metadata creation failed: " + metadataResult.message());
             }
             
-            // Update the repo record
+            // Update the repo record with new version and discovered asset name
             string oldVersion = repo.lastVersion;
             repo.lastVersion = tagName;
+            repo.releaseAssetName = assetName; // Update to actual asset name found
             
             // Return the update result
             return {
@@ -420,7 +608,7 @@ function processReleaseTagRepo(github:Client githubClient, Repository repo) retu
                 oldVersion: oldVersion,
                 newVersion: tagName,
                 apiVersion: apiVersion,
-                downloadUrl: "https://github.com/" + repo.owner + "/" + repo.repo + "/releases/tag/" + tagName,
+                downloadUrl: downloadUrl != "" ? downloadUrl : ("https://github.com/" + repo.owner + "/" + repo.repo + "/releases/tag/" + tagName),
                 localPath: localPath
             };
         } else {
@@ -529,7 +717,7 @@ function processRolloutBasedRepo(Repository repo) returns UpdateResult|error? {
     io:println(string `  Branch: ${branch}`);
     io:println(string `  Current tracked rollout: ${repo.lastVersion}`);
     
-    // Extract the base path to the Rollouts directory
+    // Extract and validate path structure
     string[] pathParts = regexp:split(re `/Rollouts/`, repo.specPath);
     if pathParts.length() < 2 {
         io:println("  ❌ Invalid path format - cannot find Rollouts directory");
@@ -537,6 +725,10 @@ function processRolloutBasedRepo(Repository repo) returns UpdateResult|error? {
     }
     
     string basePath = pathParts[0] + "/Rollouts";
+    
+    // Extract the path after the rollout number
+    string[] afterRolloutParts = regexp:split(re `/[0-9]+/`, repo.specPath);
+    string afterRolloutPath = afterRolloutParts.length() > 1 ? afterRolloutParts[1] : "";
     
     // Find the latest rollout number
     string|error latestRollout = findLatestRollout(repo.owner, repo.repo, branch, basePath);
@@ -549,54 +741,111 @@ function processRolloutBasedRepo(Repository repo) returns UpdateResult|error? {
     io:println(string `  📌 Latest rollout: ${latestRollout}`);
     
     // Check if rollout has changed
-    if hasVersionChanged(repo.lastVersion, latestRollout) {
-        io:println(string `  ✅ UPDATE DETECTED! (Rollout ${repo.lastVersion} → ${latestRollout})`);
+    if !hasVersionChanged(repo.lastVersion, latestRollout) {
+        io:println(string `  ℹ️  No updates (rollout unchanged: ${latestRollout})`);
+        return ();
+    }
+    
+    io:println(string `  ✅ UPDATE DETECTED! (Rollout ${repo.lastVersion} → ${latestRollout})`);
+    
+    // Construct the new spec path with the latest rollout
+    string newSpecPath = basePath + "/" + latestRollout + "/" + afterRolloutPath;
+    io:println(string `  📍 Expected spec path: ${newSpecPath}`);
+    
+    // Try to download the spec from expected path
+    string specContent = "";
+    boolean downloaded = false;
+    string actualSpecPath = newSpecPath;
+    
+    string|error specResult = downloadSpecFromBranch(
+        repo.owner,
+        repo.repo,
+        branch,
+        newSpecPath
+    );
+    
+    if specResult is string {
+        specContent = specResult;
+        downloaded = true;
+    } else {
+        io:println(string `  ⚠️  Spec not found at expected path, searching rollout directory...`);
         
-        // Construct the new spec path with the latest rollout
-        string[] afterRollouts = regexp:split(re `/Rollouts/[0-9]+/`, repo.specPath);
-        string afterRolloutPath = afterRollouts.length() > 1 ? afterRollouts[1] : "";
-        string newSpecPath = basePath + "/" + latestRollout + "/" + afterRolloutPath;
+        // Fallback: search the rollout directory for OpenAPI files
+        string rolloutPath = basePath + "/" + latestRollout;
         
-        io:println(string `  📍 New spec path: ${newSpecPath}`);
+        // Try to find spec in the directory
+        string|error foundSpec = findSpecInDirectory(repo.owner, repo.repo, branch, rolloutPath);
         
-        // Download the spec
-        string|error specContent = downloadSpecFromBranch(
-            repo.owner,
-            repo.repo,
-            branch,
-            newSpecPath
-        );
-        
-        if specContent is error {
-            io:println("  ❌ Download failed: " + specContent.message());
-            return error(specContent.message());
+        if foundSpec is string {
+            actualSpecPath = foundSpec;
+            io:println(string `  📍 Found spec at: ${actualSpecPath}`);
+            
+            string|error content = downloadSpecFromBranch(repo.owner, repo.repo, branch, actualSpecPath);
+            if content is string {
+                specContent = content;
+                downloaded = true;
+            }
         }
         
-        // Extract API version from spec
-        string apiVersion = "";
-        var apiVersionResult = extractApiVersion(specContent);
-        if apiVersionResult is error {
-            io:println("  ⚠️  Could not extract API version from spec, using rollout number");
-            apiVersion = latestRollout;
-        } else {
-            apiVersion = apiVersionResult;
-            io:println(string `  📌 API Version: ${apiVersion}`);
+        // If still not found, try subdirectories (e.g., v3/, v4/)
+        if !downloaded {
+            string[] subDirs = ["v3", "v4", "v1", "v2"];
+            foreach string subDir in subDirs {
+                string subDirPath = rolloutPath + "/" + subDir;
+                string|error subDirSpec = findSpecInDirectory(repo.owner, repo.repo, branch, subDirPath);
+                if subDirSpec is string {
+                    actualSpecPath = subDirSpec;
+                    io:println(string `  📍 Found spec in subdirectory: ${actualSpecPath}`);
+                    
+                    string|error content = downloadSpecFromBranch(repo.owner, repo.repo, branch, actualSpecPath);
+                    if content is string {
+                        specContent = content;
+                        downloaded = true;
+                        break;
+                    }
+                }
+            }
         }
-        
-        // Structure: openapi/{vendor}/{api}/rollout-{rolloutNumber}/
-        string versionDir = "../openapi/" + repo.vendor + "/" + repo.api + "/rollout-" + latestRollout;
-        string localPath = versionDir + "/openapi.yaml";
-        
-        // Check if this rollout already exists
-        boolean dirExists = check file:test(versionDir, file:EXISTS);
-        if dirExists {
-            io:println(string `  ⚠️  Rollout directory already exists: ${versionDir}`);
-            io:println("  ℹ️  Skipping duplicate download");
-            return ();
-        }
-        
-        // Save the spec
-        error? saveResult = saveSpec(specContent, localPath);
+    }
+    
+    if !downloaded || specContent == "" {
+        io:println("  ❌ Could not find OpenAPI spec in new rollout");
+        return error("Could not find OpenAPI spec in new rollout");
+    }
+    
+    // Validate spec
+    if !isValidOpenAPISpec(specContent) {
+        io:println("  ❌ Downloaded file is not a valid OpenAPI spec");
+        return error("Invalid OpenAPI specification in new rollout");
+    }
+    
+    io:println("  ✅ Downloaded and validated OpenAPI spec");
+    
+    // Extract API version from spec
+    string apiVersion = "";
+    var apiVersionResult = extractApiVersion(specContent);
+    if apiVersionResult is error {
+        io:println("  ⚠️  Could not extract API version from spec, using rollout number");
+        apiVersion = latestRollout;
+    } else {
+        apiVersion = apiVersionResult;
+        io:println(string `  📌 API Version: ${apiVersion}`);
+    }
+    
+    // Structure: openapi/{vendor}/{api}/rollout-{rolloutNumber}/
+    string versionDir = "../openapi/" + repo.vendor + "/" + repo.api + "/rollout-" + latestRollout;
+    string localPath = versionDir + "/openapi.yaml";
+    
+    // Check if this rollout already exists
+    boolean dirExists = check file:test(versionDir, file:EXISTS);
+    if dirExists {
+        io:println(string `  ⚠️  Rollout directory already exists: ${versionDir}`);
+        io:println("  ℹ️  Skipping duplicate download");
+        return ();
+    }
+    
+    // Save the spec
+    error? saveResult = saveSpec(specContent, localPath);
         if saveResult is error {
             io:println("  ❌ Save failed: " + saveResult.message());
             return error(saveResult.message());
@@ -608,24 +857,20 @@ function processRolloutBasedRepo(Repository repo) returns UpdateResult|error? {
             io:println("  ⚠️  Metadata creation failed: " + metadataResult.message());
         }
         
-        // Update the repo record with new rollout and path
-        string oldVersion = repo.lastVersion;
-        repo.lastVersion = latestRollout;
-        repo.specPath = newSpecPath;
-        
-        // Return the update result
-        return {
-            repo: repo,
-            oldVersion: "rollout-" + oldVersion,
-            newVersion: "rollout-" + latestRollout,
-            apiVersion: "rollout-" + latestRollout,
-            downloadUrl: string `https://github.com/${repo.owner}/${repo.repo}/blob/${branch}/${newSpecPath}`,
-            localPath: localPath
-        };
-    } else {
-        io:println(string `  ℹ️  No updates (rollout unchanged: ${latestRollout})`);
-        return ();
-    }
+    // Update the repo record with new rollout and actual path found
+    string oldVersion = repo.lastVersion;
+    repo.lastVersion = latestRollout;
+    repo.specPath = actualSpecPath; // Update to actual path found
+    
+    // Return the update result
+    return {
+        repo: repo,
+        oldVersion: "rollout-" + oldVersion,
+        newVersion: "rollout-" + latestRollout,
+        apiVersion: "rollout-" + latestRollout,
+        downloadUrl: string `https://github.com/${repo.owner}/${repo.repo}/blob/${branch}/${actualSpecPath}`,
+        localPath: localPath
+    };
 }
 
 // Main monitoring function
