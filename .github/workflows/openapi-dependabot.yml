@@ -46,15 +46,15 @@ jobs:
         id: check_updates
         run: |
           if [ -f "UPDATE_SUMMARY.txt" ]; then
-            echo "updates_found=true" >> $GITHUB_OUTPUT
+            echo "UPDATES_FOUND=true" >> $GITHUB_ENV
             echo "Updates detected!"
           else
-            echo "updates_found=false" >> $GITHUB_OUTPUT
+            echo "UPDATES_FOUND=false" >> $GITHUB_ENV
             echo "No updates found"
           fi
       
       - name: Create and Push Branch
-        if: steps.check_updates.outputs.updates_found == 'true'
+        if: env.UPDATES_FOUND == 'true'
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           BRANCH_NAME="openapi-update-${TIMESTAMP}"
@@ -72,7 +72,7 @@ jobs:
           echo "Branch pushed successfully"
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
       - name: Ensure Labels Exist
-        if: steps.check_updates.outputs.updates_found == 'true' && env.BRANCH_NAME != ''
+        if: env.UPDATES_FOUND == 'true' && env.BRANCH_NAME != ''
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
@@ -81,7 +81,7 @@ jobs:
           gh label create "automated" --description "Automated changes" --color "bfd4f2" --force
           gh label create "dependencies" --description "Dependency updates" --color "0366d6" --force
       - name: Create Pull Request
-        if: steps.check_updates.outputs.updates_found == 'true' && env.BRANCH_NAME != ''
+        if: env.UPDATES_FOUND == 'true' && env.BRANCH_NAME != ''
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
