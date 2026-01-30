@@ -38,7 +38,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          bal run dependabot
+          cd dependabot
+          bal run
+          cd ..
       
       - name: Check for updates
         id: check_updates
