@@ -74,8 +74,7 @@ jobs:
       
       - name: Create Pull Request
         if: env.UPDATES_FOUND == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        
         run: |
           UPDATE_SUMMARY=$(cat UPDATE_SUMMARY.txt)
           PR_TITLE="chore: Update OpenAPI Specifications - $(date +%Y-%m-%d)"
