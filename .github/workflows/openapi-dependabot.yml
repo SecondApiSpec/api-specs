@@ -35,12 +35,8 @@ jobs:
           git config --global user.name "BALLERINA_BOT"
       
       - name: Run Dependabot Monitor
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          cd dependabot
-          bal run
-          cd ..
+          bal run dependabot
       
       - name: Check for updates
         id: check_updates
