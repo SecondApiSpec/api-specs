@@ -54,7 +54,7 @@ jobs:
           fi
       
       - name: Create and Push Branch
-        if: UPDATES_FOUND == 'true'
+        if: env.UPDATES_FOUND == 'true'
         run: |
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           BRANCH_NAME="openapi-update-${TIMESTAMP}"
