@@ -14,10 +14,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import ballerina/data.yaml;
 import ballerina/file;
 import ballerina/http;
 import ballerina/io;
+import ballerina/lang.regexp;
 import ballerina/os;
 import ballerinax/github;
 
@@ -53,22 +53,42 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
 }
 
 // Extract version from OpenAPI spec content
-// Extract version from OpenAPI spec content
-// Extract version from OpenAPI spec content
-// Extract version from OpenAPI spec content
 function extractApiVersion(string content) returns string|error {
-    // Import the yaml module's parseString or readString based on your version
-    json|error yamlJson = trap yaml:parseString(content);
+    // Try to find "version:" under "info:" section
+    // This is a simple regex-based extraction
 
-    if yamlJson is json {
-        // Navigate to info.version
-        json info = check yamlJson.info;
-        json version = check info.version;
+    // Split content by lines
+    string[] lines = regexp:split(re `\n`, content);
+    boolean inInfoSection = false;
 
-        if version is string {
-            return version;
+    foreach string line in lines {
+        string trimmedLine = line.trim();
+
+        // Check if we're entering info section
+        if trimmedLine == "info:" {
+            inInfoSection = true;
+            continue;
         }
-        return version.toString();
+
+        // If we're in info section, look for version
+        if inInfoSection {
+            // Exit info section if we hit another top-level key
+            if !line.startsWith(" ") && !line.startsWith("\t") && trimmedLine != "" && !trimmedLine.startsWith("#") {
+                break;
+            }
+
+            // Look for version field
+            if trimmedLine.startsWith("version:") {
+                // Extract version value
+                string[] parts = regexp:split(re `:`, trimmedLine);
+                if parts.length() >= 2 {
+                    string versionValue = parts[1].trim();
+                    // Remove quotes if present
+                    versionValue = removeQuotes(versionValue);
+                    return versionValue;
+                }
+            }
+        }
     }
 
     return error("Could not extract API version from spec");
@@ -161,7 +181,17 @@ function createMetadataFile(Repository repo, string version, string dirPath) ret
     return;
 }
 
-
+// Remove quotes from string
+function removeQuotes(string s) returns string {
+    string result = "";
+    foreach int i in 0 ..< s.length() {
+        string c = s.substring(i, i + 1);
+        if c != "\"" && c != "'" {
+            result += c;
+        }
+    }
+    return result;
+}
 
 // Main monitoring function
 public function main() returns error? {
