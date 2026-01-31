@@ -214,20 +214,10 @@ public function main() returns error? {
         return;
     }
 
-    string tokenValue = <string>token;
-
-    // Validate token
-    if tokenValue.length() == 0 {
-        io:println("Error: GH_TOKEN is empty!");
-        return;
-    }
-
-    io:println(string `Token loaded (length: ${tokenValue.length()})`);
-
     // Initialize GitHub client
     github:Client githubClient = check new ({
         auth: {
-            token: tokenValue
+            token
         }
     });
 
