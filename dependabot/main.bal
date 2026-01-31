@@ -94,40 +94,55 @@ function extractApiVersion(string content) returns string|error {
     return error("Could not extract API version from spec");
 }
 
-// Download OpenAPI spec from release asset or repo
-function downloadSpec(github:Client githubClient, string owner, string repo,
-        string assetName, string tagName, string specPath) returns string|error {
-
-    io:println(string `  Downloading ${assetName}...`);
-
-    string? downloadUrl = ();
-
-    // Try to get from release assets first
+// Extract release asset download URL
+isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
+        string repo, string assetName, string tagName) returns string|error? {
     github:Release release = check githubClient->/repos/[owner]/[repo]/releases/tags/[tagName]();
 
     github:ReleaseAsset[]? assets = release.assets;
     if assets is github:ReleaseAsset[] {
         foreach github:ReleaseAsset asset in assets {
             if asset.name == assetName {
-                downloadUrl = asset.browser_download_url;
                 io:println(string `  Found in release assets`);
-                break;
+                return asset.browser_download_url;
             }
         }
     }
+    return ();
+}
 
+// Get raw GitHub URL for spec
+isolated function downloadFromGitHubRawLink(string owner, string repo,
+        string tagName, string specPath) returns string {
+    io:println(string `  Not in release assets, downloading from repository...`);
+    return string `https://raw.githubusercontent.com/${owner}/${repo}/${tagName}/${specPath}`;
+}
+
+// Download OpenAPI spec from release asset or repo
+function downloadSpec(github:Client githubClient, string owner, string repo,
+        string assetName, string tagName, string specPath) returns string|error {
+
+    io:println(string `  Downloading ${assetName}...`);
+
+    // Try to get from release assets first
+    string|error? assetUrl = downloadFromGitHubReleaseTag(githubClient, owner, repo, assetName, tagName);
+
+    string downloadUrl;
     // If not found in assets, try direct download from repo
-    if downloadUrl is () {
-        io:println(string `Not in release assets, downloading from repository...`);
-        downloadUrl = string `https://raw.githubusercontent.com/${owner}/${repo}/${tagName}/${specPath}`;
+    if assetUrl is () {
+        downloadUrl = downloadFromGitHubRawLink(owner, repo, tagName, specPath);
+    } else if assetUrl is error {
+        return assetUrl;
+    } else {
+        downloadUrl = assetUrl;
     }
 
     // Download the file
-    http:Client httpClient = check new (<string>downloadUrl);
+    http:Client httpClient = check new (downloadUrl);
     http:Response response = check httpClient->get("");
 
     if response.statusCode != 200 {
-        return error(string `Failed to download: HTTP ${response.statusCode} from ${<string>downloadUrl}`);
+        return error(string `Failed to download: HTTP ${response.statusCode} from ${downloadUrl}`);
     }
 
     // Get content
