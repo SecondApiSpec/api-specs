@@ -53,16 +53,24 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
 }
 
 // Extract version from OpenAPI spec content
+// Extract version from OpenAPI spec content
+// Extract version from OpenAPI spec content
+// Extract version from OpenAPI spec content
 function extractApiVersion(string content) returns string|error {
-    // Parse YAML content
-    json yamlJson = check yaml:parseString(content);
-    // Extract version from info.version
-    json|error infoVersion = yamlJson.info.version;
-    
-    if infoVersion is json {
-        return infoVersion.toString();
+    // Import the yaml module's parseString or readString based on your version
+    json|error yamlJson = trap yaml:parseString(content);
+
+    if yamlJson is json {
+        // Navigate to info.version
+        json info = check yamlJson.info;
+        json version = check info.version;
+
+        if version is string {
+            return version;
+        }
+        return version.toString();
     }
-    
+
     return error("Could not extract API version from spec");
 }
 
