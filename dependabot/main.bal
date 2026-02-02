@@ -20,7 +20,7 @@ import ballerina/io;
 import ballerina/data.yaml;
 import ballerina/os;
 import ballerinax/github;
-
+import ballerina/lang.value;
 
 // Repository record type
 type Repository record {|
@@ -53,28 +53,37 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
     return oldVersion != newVersion;
 }
 
-// Extract version from OpenAPI spec content using YAML parser
-// Extract version from OpenAPI spec content using the data.yaml library
 function extractApiVersion(string content) returns string|error {
-    // Parse YAML into a generic anydata structure
-    anydata spec = check yaml:parseString(content);
+    anydata spec;
 
-    // We expect a top-level map
+    // Heuristic: JSON always starts with '{'
+    string trimmed = content.trim();
+    if trimmed.startsWith("{") {
+        // JSON OpenAPI
+        spec = check value:fromJsonString(trimmed);
+    } else {
+        // YAML OpenAPI (Stripe, HubSpot, etc.)
+        yaml:Options opts = {
+            enableConstraintValidation: false,
+            allowDataProjection: false,
+            allowAnchorRedefinition: true,
+            allowMapEntryRedefinition: true
+        };
+
+        spec = check yaml:parseString(trimmed, opts);
+    }
+
     if spec is map<anydata> {
         anydata info = spec["info"];
-
         if info is map<anydata> {
             anydata version = info["version"];
-
             if version is string {
                 return version.trim();
             }
         }
     }
 
-    return error(
-        "The 'version' field was not found under the 'info' section of the OpenAPI spec."
-    );
+    return error("OpenAPI info.version not found");
 }
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
