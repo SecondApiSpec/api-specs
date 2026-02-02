@@ -56,26 +56,24 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
 function extractApiVersion(string content) returns string|error {
     anydata spec;
 
-    // Heuristic: JSON always starts with '{'
     string trimmed = content.trim();
     if trimmed.startsWith("{") {
-        // JSON OpenAPI
         spec = check value:fromJsonString(trimmed);
     } else {
-        // YAML OpenAPI (Stripe, HubSpot, etc.)
         yaml:Options opts = {
             enableConstraintValidation: false,
             allowDataProjection: false,
             allowAnchorRedefinition: true,
             allowMapEntryRedefinition: true
         };
-
         spec = check yaml:parseString(trimmed, opts);
     }
 
-    if spec is map<anydata> {
-        anydata info = spec["info"];
-        if info is map<anydata> {
+    // 🔑 Structural access (this works for readonly maps)
+    anydata info;
+    if spec is map<readonly & anydata> || spec is map<anydata> {
+        info = spec["info"];
+        if info is map<readonly & anydata> || info is map<anydata> {
             anydata version = info["version"];
             if version is string {
                 return version.trim();
@@ -85,6 +83,7 @@ function extractApiVersion(string content) returns string|error {
 
     return error("OpenAPI info.version not found");
 }
+
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
         string repo, string assetName, string tagName) returns string? {
