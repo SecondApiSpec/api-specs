@@ -58,8 +58,10 @@ function extractApiVersion(string content) returns string|error {
 
     string trimmed = content.trim();
     if trimmed.startsWith("{") {
+        // JSON (Twilio)
         spec = check value:fromJsonString(trimmed);
     } else {
+        // YAML (Stripe)
         yaml:Options opts = {
             enableConstraintValidation: false,
             allowDataProjection: false,
@@ -69,11 +71,10 @@ function extractApiVersion(string content) returns string|error {
         spec = check yaml:parseString(trimmed, opts);
     }
 
-    // 🔑 Structural access (this works for readonly maps)
-    anydata info;
-    if spec is map<readonly & anydata> || spec is map<anydata> {
-        info = spec["info"];
-        if info is map<readonly & anydata> || info is map<anydata> {
+    // 🔑 Type narrowing is REQUIRED
+    if spec is map<anydata> {
+        anydata info = spec["info"];
+        if info is map<anydata> {
             anydata version = info["version"];
             if version is string {
                 return version.trim();
@@ -81,7 +82,7 @@ function extractApiVersion(string content) returns string|error {
         }
     }
 
-    return error("OpenAPI info.version not found");
+    return error("OpenAPI info.version not found or not a string");
 }
 
 // Extract release asset download URL
