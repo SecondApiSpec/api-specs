@@ -17,9 +17,10 @@
 import ballerina/file;
 import ballerina/http;
 import ballerina/io;
-import ballerina/lang.regexp;
+
 import ballerina/os;
 import ballerinax/github;
+import ballerina/yaml;
 
 // Repository record type
 type Repository record {|
@@ -52,48 +53,26 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
     return oldVersion != newVersion;
 }
 
-// Extract version from OpenAPI spec content
+// Extract version from OpenAPI spec content using YAML parser
 function extractApiVersion(string content) returns string|error {
-    // Try to find "version:" under "info:" section
-    // This is a simple regex-based extraction
+    // Parse YAML content to JSON
+    json specJson = check yaml:readString(content);
 
-    // Split content by lines
-    string[] lines = regexp:split(re `\n`, content);
-    boolean inInfoSection = false;
-
-    foreach string line in lines {
-        string trimmedLine = line.trim();
-
-        // Check if we're entering info section
-        if trimmedLine == "info:" {
-            inInfoSection = true;
-            continue;
-        }
-
-        // If we're in info section, look for version
-        if inInfoSection {
-            // Exit info section if we hit another top-level key
-            if !line.startsWith(" ") && !line.startsWith("\t") && trimmedLine != "" && !trimmedLine.startsWith("#") {
-                break;
-            }
-
-            // Look for version field
-            if trimmedLine.startsWith("version:") {
-                // Extract version value
-                string[] parts = regexp:split(re `:`, trimmedLine);
-                if parts.length() >= 2 {
-                    string versionValue = parts[1].trim();
-                    // Remove quotes if present
-                    versionValue = removeQuotes(versionValue);
-                    return versionValue;
-                }
+    // Check if it's a map
+    if specJson is map<json> {
+        // Access info object
+        json info = specJson["info"];
+        if info is map<json> {
+            // Access version field
+            json 'version = info["version"];
+            if 'version is string {
+                return 'version.trim();
             }
         }
     }
 
-    return error("Could not extract API version from spec");
+    return error("Could not extract 'info.version' from OpenAPI spec. Ensure the file is a valid OpenAPI document.");
 }
-
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
         string repo, string assetName, string tagName) returns string? {
