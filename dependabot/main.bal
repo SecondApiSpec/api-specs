@@ -56,21 +56,25 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
 // Extract version from OpenAPI spec content using YAML parser
 // Extract version from OpenAPI spec content using the data.yaml library
 function extractApiVersion(string content) returns string|error {
-    // Parse the YAML string into a JSON-compatible map
-    json spec = check yaml:toYamlString(content);
+    // Parse YAML into a generic anydata structure
+    anydata spec = check yaml:parseString(content);
 
-    // Navigate the structure: info -> version
-    if spec is map<json> {
-        json info = spec.get("info");
-        if info is map<json> {
-            json 'version = info.get("version");
-            if 'version is string {
-                return 'version.trim();
+    // We expect a top-level map
+    if spec is map<anydata> {
+        anydata info = spec["info"];
+
+        if info is map<anydata> {
+            anydata version = info["version"];
+
+            if version is string {
+                return version.trim();
             }
         }
     }
 
-    return error("The 'version' field was not found under the 'info' section of the OpenAPI spec.");
+    return error(
+        "The 'version' field was not found under the 'info' section of the OpenAPI spec."
+    );
 }
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
