@@ -17,10 +17,10 @@
 import ballerina/file;
 import ballerina/http;
 import ballerina/io;
-
+import ballerina/data.yaml;
 import ballerina/os;
 import ballerinax/github;
-import ballerina/yaml;
+
 
 // Repository record type
 type Repository record {|
@@ -54,24 +54,23 @@ function hasVersionChanged(string oldVersion, string newVersion) returns boolean
 }
 
 // Extract version from OpenAPI spec content using YAML parser
+// Extract version from OpenAPI spec content using the data.yaml library
 function extractApiVersion(string content) returns string|error {
-    // Parse YAML content to JSON
-    json specJson = check yaml:readString(content);
+    // Parse the YAML string into a JSON-compatible map
+    json spec = check yaml:toYamlString(content);
 
-    // Check if it's a map
-    if specJson is map<json> {
-        // Access info object
-        json info = specJson["info"];
+    // Navigate the structure: info -> version
+    if spec is map<json> {
+        json info = spec.get("info");
         if info is map<json> {
-            // Access version field
-            json 'version = info["version"];
+            json 'version = info.get("version");
             if 'version is string {
                 return 'version.trim();
             }
         }
     }
 
-    return error("Could not extract 'info.version' from OpenAPI spec. Ensure the file is a valid OpenAPI document.");
+    return error("The 'version' field was not found under the 'info' section of the OpenAPI spec.");
 }
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
