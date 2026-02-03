@@ -64,7 +64,6 @@ function extractApiVersion(string content) returns string|error {
         // YAML (Stripe)
         yaml:Options opts = {
             enableConstraintValidation: false,
-            allowDataProjection: false,
             allowAnchorRedefinition: true,
             allowMapEntryRedefinition: true
         };
@@ -78,11 +77,14 @@ function extractApiVersion(string content) returns string|error {
             anydata version = info["version"];
             if version is string {
                 return version.trim();
+            } else if version is int {
+                // Handle numeric versions
+                return version.toString();
             }
         }
     }
 
-    return error("OpenAPI info.version not found or not a string");
+    return error("OpenAPI info.version not found or not a valid type");
 }
 
 
