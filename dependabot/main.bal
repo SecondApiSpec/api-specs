@@ -85,6 +85,7 @@ function extractApiVersion(string content) returns string|error {
     return error("OpenAPI info.version not found or not a string");
 }
 
+
 // Extract release asset download URL
 isolated function downloadFromGitHubReleaseTag(github:Client githubClient, string owner,
         string repo, string assetName, string tagName) returns string? {
