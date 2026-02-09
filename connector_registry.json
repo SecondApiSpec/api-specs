@@ -1,0 +1,106 @@
+{
+  "connectors": [
+    {
+      "id": "stripe-payments",
+      "vendor": "stripe",
+      "api": "stripe",
+      "name": "Stripe API",
+      "connector_repo": "module-ballerinax-stripe",
+      "module_version": "2.0.1-SNAPSHOT",
+      "frequency": "daily",
+      "discovery_mode": "github_verified",
+      "sources": {
+        "github": {
+          "owner": "stripe",
+          "repo": "openapi",
+          "spec_path": "openapi/spec3.yaml",
+          "release_asset_name": "spec3.yaml",
+          "versioning_strategy": "release-tag"
+        }
+      },
+      "metadata": {
+        "base_url": "https://api.stripe.com",
+        "documentation_url": "https://stripe.com/docs/api",
+        "description": "Stripe payment processing API",
+        "tags": ["payments", "billing"]
+      },
+      "version_tracking": {
+        "last_known_version": "v2153",
+        "last_checked": "2025-02-09T00:00:00Z",
+        "last_content_hash": null
+      }
+    },
+    {
+      "id": "salesforce-marketing",
+      "vendor": "salesforce",
+      "api": "marketingcloud",
+      "name": "Salesforce Marketing Cloud API",
+      "connector_repo": "module-ballerinax-salesforce.marketingcloud",
+      "module_version": "1.0.1-SNAPSHOT",
+      "frequency": "weekly",
+      "discovery_mode": "agent_assisted",
+      "sources": {
+        "documentation_url": "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/api-documentation.html",
+        "github": null,
+        "vendor_api": null
+      },
+      "metadata": {
+        "base_url": "https://www.exacttargetapis.com",
+        "documentation_url": "https://developer.salesforce.com/docs/marketing/marketing-cloud",
+        "description": "Salesforce Marketing Cloud REST API",
+        "tags": ["marketing", "email", "automation"]
+      },
+      "version_tracking": {
+        "last_known_version": "unknown",
+        "last_checked": null,
+        "last_content_hash": null
+      },
+      "agent_context": {
+        "hints": [
+          "Look for OpenAPI or Swagger spec links in the API documentation",
+          "Check for downloadable JSON or YAML files",
+          "Look in developer resources or API reference sections"
+        ],
+        "previous_findings": null
+      }
+    },
+    {
+      "id": "twilio-communications",
+      "vendor": "twilio",
+      "api": "twilio",
+      "name": "Twilio API",
+      "connector_repo": "module-ballerinax-twilio",
+      "module_version": "5.0.1-SNAPSHOT",
+      "frequency": "weekly",
+      "discovery_mode": "hybrid",
+      "sources": {
+        "documentation_url": "https://www.twilio.com/docs/openapi",
+        "github": {
+          "owner": "twilio",
+          "repo": "twilio-oai",
+          "spec_path": "spec/json/twilio_api_v2010.json",
+          "release_asset_name": "twilio_api_v2010.json",
+          "versioning_strategy": "release-tag"
+        }
+      },
+      "metadata": {
+        "base_url": "https://api.twilio.com",
+        "documentation_url": "https://www.twilio.com/docs",
+        "description": "Twilio communications API",
+        "tags": ["sms", "voice", "communications"]
+      },
+      "version_tracking": {
+        "last_known_version": "2.6.1",
+        "last_checked": "2025-02-09T00:00:00Z",
+        "last_content_hash": null
+      }
+    }
+  ],
+  "discovery_modes": {
+    "github_verified": "Spec is in a verified GitHub repository with clear versioning",
+    "agent_assisted": "Agent must discover spec location from documentation",
+    "hybrid": "Both GitHub and documentation URL available, prefer GitHub but verify with agent",
+    "vendor_api": "Spec available through vendor's API endpoint",
+    "manual": "Requires manual intervention (restricted access)"
+  }
+}
